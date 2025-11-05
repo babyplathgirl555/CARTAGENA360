@@ -1,5 +1,5 @@
 # Cartagena360 - Dashboard automático con recomendaciones extendidas
-# Autor: Miri + ChatGPT
+
 # Archivo: cartagena_360_dashboard.py
 
 import os
