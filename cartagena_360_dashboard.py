@@ -15,8 +15,8 @@ import utils as utils
 STOPWORDS = utils.load_stopwords()
 
 # Rutas de archivos CSV
-csv_path = 'proyecto/db_final.csv'
-csv_path_old = 'proyecto/twitter_coms.csv'
+csv_path = './databases/db_final.csv'
+csv_path_old = './databases/twitter_coms.csv'
 
 # Leer bases de datos
 df = utils.read_csv_auto(csv_path)

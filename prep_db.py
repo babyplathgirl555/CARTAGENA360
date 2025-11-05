@@ -1,6 +1,6 @@
 from utils import read_csv_auto
 
-URL_DATA = './twitter_coms.csv'
+URL_DATA = './databases/twitter_coms.csv'
 
 df = read_csv_auto(URL_DATA)
 
@@ -30,4 +30,4 @@ clean_df = strip_df.copy()
 clean_df['pais'] = clean_df['pais'].replace('estados unidos', "usa")
 clean_df['pais'] = clean_df['pais'].replace('brazil', 'brasil')
 
-clean_df.to_csv('./db_final.csv', index=False)
+clean_df.to_csv('./databases/db_final.csv', index=False)
