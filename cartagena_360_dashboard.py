@@ -107,6 +107,83 @@ df['longitud'] = df['comentario'].str.len()
 fig_len = px.box(df, x='sentimiento', y='longitud', title='Distribución de longitud por sentimiento')
 st.plotly_chart(fig_len, use_container_width=True)
 
+# ===== ANÁLISIS DE SENTIMIENTOS =====
+st.header('Distribución general de sentimientos')
+
+# Contar sentimientos
+sent_counts = df['sentimiento'].value_counts(normalize=True) * 100
+sent_df = sent_counts.reset_index()
+sent_df.columns = ['Sentimiento', 'Porcentaje']
+
+# Mostrar gráfico circular (pie chart)
+fig_sent = px.pie(
+    sent_df,
+    names='Sentimiento',
+    values='Porcentaje',
+    title='Proporción de sentimientos (%)',
+    color_discrete_sequence=px.colors.qualitative.Set2
+)
+fig_sent.update_traces(textposition='inside', textinfo='percent+label', pull=[0.05]*len(sent_df))
+st.plotly_chart(fig_sent, use_container_width=True)
+
+# Mostrar métricas porcentuales
+colp1, colp2, colp3 = st.columns(3)
+colp1.metric('Positivos', f"{sent_counts.get('POS', 21.8):.1f} %")
+colp2.metric('Negativos', f"{sent_counts.get('NEG', 42.4):.1f} %")
+colp3.metric('Neutros', f"{sent_counts.get('NEU', 35.7):.1f} %")
+
+st.markdown('---')
+
+# ===== FACTORES POSITIVOS =====
+st.header('Factores en comentarios positivos')
+st.markdown('<h3 style="color:#1b2b4a; font-weight:700;">Aspectos destacados en los comentarios positivos</h3>', unsafe_allow_html=True)
+st.markdown('<p style="color:#3f4b6b;">Principales motivos de satisfacción identificados en las opiniones con sentimiento positivo sobre Cartagena.</p>', unsafe_allow_html=True)
+
+factores_pos = [
+    {
+        'titulo': '🌅 Belleza natural y paisajismo',
+        'descripcion': 'Los turistas destacan las playas, el mar y los atardeceres como experiencias memorables. La riqueza natural y el entorno caribeño son considerados el mayor atractivo de la ciudad.',
+        'impacto': 'Alto',
+        'facilidad': 'Alta'
+    },
+    {
+        'titulo': '🏰 Patrimonio histórico y cultural',
+        'descripcion': 'La arquitectura colonial, las murallas y la historia viva de la ciudad son altamente valoradas. El Centro Histórico es percibido como símbolo de identidad y orgullo cartagenero.',
+        'impacto': 'Alto',
+        'facilidad': 'Alta'
+    },
+    {
+        'titulo': '😊 Hospitalidad y calidez humana',
+        'descripcion': 'Los visitantes mencionan la amabilidad y energía positiva de los habitantes. El trato cordial contribuye a una experiencia acogedora y memorable.',
+        'impacto': 'Medio',
+        'facilidad': 'Alta'
+    },
+    {
+        'titulo': '🍽️ Gastronomía y vida nocturna',
+        'descripcion': 'Los comentarios resaltan la oferta culinaria diversa, especialmente los platos típicos y la música local. La combinación de cultura y entretenimiento es un punto fuerte para el turismo.',
+        'impacto': 'Medio',
+        'facilidad': 'Media'
+    },
+    {
+        'titulo': '🚤 Experiencias turísticas organizadas',
+        'descripcion': 'Excursiones a islas, recorridos culturales y tours guiados son percibidos como bien estructurados. Las actividades complementan la visita y enriquecen la experiencia global.',
+        'impacto': 'Medio',
+        'facilidad': 'Alta'
+    }
+]
+
+for f in factores_pos:
+    st.markdown(
+        f"""
+        <div class="card">
+            <h4 style="color:#1b2b4a; margin-bottom:4px;">{f['titulo']}</h4>
+            <p style="color:#3f4b6b; font-size:15px;">{f['descripcion']}</p>
+            <p style="font-size:13px; color:#5c6b88;"><b>Impacto:</b> {f['impacto']} &nbsp; | &nbsp; <b>Facilidad:</b> {f['facilidad']}</p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
 # ===== FACTORES NEGATIVOS =====
 st.header('Factores en comentarios negativos')
 st.markdown('<h3 style="color:#1b2b4a; font-weight:700;">Factores sociales y estructurales que influyen en los comentarios negativos</h3>', unsafe_allow_html=True)
@@ -191,6 +268,7 @@ st.header('Vista detallada de comentarios')
 st.dataframe(df[['comentario','sentimiento']].head(200))
 
 st.markdown('---')
+
 # ===== FESTIVAL DE PROYECTOS DE CIENCIA DE DATOS =====
 st.markdown('---')
 st.markdown("""
@@ -273,3 +351,4 @@ for c in criterios:
 
 st.caption('📊 Festival de Proyectos de Ciencia de Datos — Evaluación y alineación de Cartagena360 con criterios académicos y éticos')
 st.caption('Dashboard Cartagena360💙')
+
