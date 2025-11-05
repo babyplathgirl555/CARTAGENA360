@@ -1,40 +1,41 @@
-# Cartagena360 - Dashboard automático con recomendaciones extendidas
-
-# Archivo: cartagena_360_dashboard.py
-
-import os
-import chardet
+# # Librerías para dashboard, gráficos y procesamiento de texto
 import streamlit as st
+
 import pandas as pd
-import numpy as np
+import matplotlib.pyplot as plt
 import plotly.express as px
-from sklearn.feature_extraction.text import CountVectorizer
-from nltk.corpus import stopwords
-import nltk
 
-# ===== CONFIGURACIÓN =====
-def load_stopwords():
-    try:
-        return stopwords.words('spanish')
-    except:
-        nltk.download('stopwords')
-        return stopwords.words('spanish')
+import io
+from wordcloud import WordCloud
+from sentence_transformers import SentenceTransformer
+from sklearn.manifold import TSNE
+import utils as utils
 
-stop_words = load_stopwords()
+# Cargar stopwords personalizadas
+STOPWORDS = utils.load_stopwords()
 
-st.set_page_config(page_title="Cartagena360 — Análisis de Sentimientos", layout='wide', initial_sidebar_state='expanded')
+# Rutas de archivos CSV
+csv_path = 'proyecto/db_final.csv'
+csv_path_old = 'proyecto/twitter_coms.csv'
 
-# ======== ESTILOS GENERALES ========
+# Leer bases de datos
+df = utils.read_csv_auto(csv_path)
+df_old = utils.read_csv_auto(csv_path_old)
+
+# Validación de existencia de archivos
+if df is None:
+    st.error(f"No se encontró o no se pudo leer el archivo: {csv_path}")
+    st.stop()
+if df_old is None:
+    st.error(f"No se encontró o no se pudo leer el archivo: {csv_path_old}")
+    st.stop()
+
+# Personalización de estilo CSS para tarjetas
 st.markdown(
     """
     <style>
-    .stApp { background: linear-gradient(180deg, #f8fbff 0%, #fffaf6 100%); }
-    .big-title {font-size:34px; font-weight:800; color:#1b2b4a;}
-    .subtitle {color:#3f4b6b}
-
     /* Tarjetas de factores negativos */
     .card {
-        background: rgba(255, 255, 255, 0.92);
         border-left: 6px solid #2e5fa8;
         border-radius: 14px;
         box-shadow: 0 6px 18px rgba(40, 60, 100, 0.15);
@@ -51,138 +52,364 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# ======== ENCABEZADO ========
-st.markdown('<div class="big-title">Cartagena360 — Dashboard de Sentimientos Turísticos</div>', unsafe_allow_html=True)
-st.markdown('<div class="subtitle">Análisis automático de comentarios, causas negativas y recomendaciones accionables</div>', unsafe_allow_html=True)
-st.markdown('---')
+# Título y descripción del dashboard
+st.title("Cartagena 360°: Análisis de Opiniones Turísticas")
+st.subheader('Dashboard de Sentimientos Turísticos en Cartagena de Indias')
+st.markdown("""
+El dashboard fue creado con el objetivo de analizar las opiniones de turistas 
+sobre la ciudad de Cartagena de Indias mediante técnicas de procesamiento de 
+lenguaje natural y análisis de sentimientos, con el propósito de identificar 
+patrones, percepciones y factores determinantes que contribuyan a mejorar la 
+experiencia del visitante y fortalecer la competitividad del sector turístico local.
+            """)
 
-# ===== CARGA AUTOMÁTICA =====
-def read_csv_auto(filename):
-    if not os.path.exists(filename):
-        st.error(f"No se encontró el archivo: {filename}")
-        st.stop()
-    with open(filename, 'rb') as f:
-        enc = chardet.detect(f.read())['encoding']
-    for sep in [',', ';', '\t']:
-        try:
-            df_temp = pd.read_csv(filename, sep=sep, encoding=enc, on_bad_lines='skip')
-            if df_temp.shape[1] > 1:
-                return df_temp
-        except Exception:
-            continue
-    st.error('No se pudo leer el archivo CSV automáticamente. Revisa separador o codificación.')
-    st.stop()
-
-csv_path = 'archivo_final_sentimientos.csv'
-df = read_csv_auto(csv_path)
-
-# ===== LIMPIEZA BÁSICA =====
-df.columns = [c.strip().lower() for c in df.columns]
-if 'comentario' not in df.columns:
-    for c in df.columns:
-        if 'coment' in c or 'texto' in c:
-            df.rename(columns={c: 'comentario'}, inplace=True)
-if 'sentimiento' not in df.columns:
-    df['sentimiento'] = 'NO_CALIFICADO'
-df['comentario'] = df['comentario'].astype(str)
-
-# ===== FUNCIONES =====
-def top_ngrams(series, n=20, ngram=1):
-    vec = CountVectorizer(ngram_range=(ngram, ngram), stop_words=stop_words)
-    X = vec.fit_transform(series)
-    sums = np.array(X.sum(axis=0)).flatten()
-    words = np.array(vec.get_feature_names_out())
-    idx = sums.argsort()[::-1][:n]
-    return list(zip(words[idx], sums[idx]))
-
-# ===== SECCIONES =====
-st.header('Resumen general')
+# Métricas principales
 col1, col2, col3 = st.columns(3)
 col1.metric('Total de comentarios', len(df))
 col2.metric('Promedio longitud', f"{df['comentario'].str.len().mean():.1f}")
 col3.metric('Sentimientos únicos', len(df['sentimiento'].unique()))
-
-st.header('Variación entre los comentarios')
-df['longitud'] = df['comentario'].str.len()
-fig_len = px.box(df, x='sentimiento', y='longitud', title='Distribución de longitud por sentimiento')
-st.plotly_chart(fig_len, use_container_width=True)
-
-# ===== ANÁLISIS DE SENTIMIENTOS =====
-st.header('Distribución general de sentimientos')
-
-# Contar sentimientos
-sent_counts = df['sentimiento'].value_counts(normalize=True) * 100
-sent_df = sent_counts.reset_index()
-sent_df.columns = ['Sentimiento', 'Porcentaje']
-
-# Mostrar gráfico circular (pie chart)
-fig_sent = px.pie(
-    sent_df,
-    names='Sentimiento',
-    values='Porcentaje',
-    title='Proporción de sentimientos (%)',
-    color_discrete_sequence=px.colors.qualitative.Set2
-)
-fig_sent.update_traces(textposition='inside', textinfo='percent+label', pull=[0.05]*len(sent_df))
-st.plotly_chart(fig_sent, use_container_width=True)
-
-# Mostrar métricas porcentuales
-colp1, colp2, colp3 = st.columns(3)
-colp1.metric('Positivos', f"{sent_counts.get('POS', 21.8):.1f} %")
-colp2.metric('Negativos', f"{sent_counts.get('NEG', 42.4):.1f} %")
-colp3.metric('Neutros', f"{sent_counts.get('NEU', 35.7):.1f} %")
-
 st.markdown('---')
 
-# ===== FACTORES POSITIVOS =====
-st.header('Factores en comentarios positivos')
-st.markdown('<h3 style="color:#1b2b4a; font-weight:700;">Aspectos destacados en los comentarios positivos</h3>', unsafe_allow_html=True)
-st.markdown('<p style="color:#3f4b6b;">Principales motivos de satisfacción identificados en las opiniones con sentimiento positivo sobre Cartagena.</p>', unsafe_allow_html=True)
+st.header("Fuente y descripción de los datos")
+st.markdown("""
+El conjunto de datos utilizado en este proyecto **fue elaborado de manera manual 
+por los integrantes del equipo**, a partir de la recopilación de información 
+proveniente de plataformas digitales de opinión turística como X.com, TripAdvisor 
+y Booking, entre otras.
+            """)
 
-factores_pos = [
-    {
-        'titulo': '🌅 Belleza natural y paisajismo',
-        'descripcion': 'Los turistas destacan las playas, el mar y los atardeceres como experiencias memorables. La riqueza natural y el entorno caribeño son considerados el mayor atractivo de la ciudad.',
-        'impacto': 'Alto',
-        'facilidad': 'Alta'
-    },
-    {
-        'titulo': '🏰 Patrimonio histórico y cultural',
-        'descripcion': 'La arquitectura colonial, las murallas y la historia viva de la ciudad son altamente valoradas. El Centro Histórico es percibido como símbolo de identidad y orgullo cartagenero.',
-        'impacto': 'Alto',
-        'facilidad': 'Alta'
-    },
-    {
-        'titulo': '😊 Hospitalidad y calidez humana',
-        'descripcion': 'Los visitantes mencionan la amabilidad y energía positiva de los habitantes. El trato cordial contribuye a una experiencia acogedora y memorable.',
-        'impacto': 'Medio',
-        'facilidad': 'Alta'
-    },
-    {
-        'titulo': '🍽️ Gastronomía y vida nocturna',
-        'descripcion': 'Los comentarios resaltan la oferta culinaria diversa, especialmente los platos típicos y la música local. La combinación de cultura y entretenimiento es un punto fuerte para el turismo.',
-        'impacto': 'Medio',
-        'facilidad': 'Media'
-    },
-    {
-        'titulo': '🚤 Experiencias turísticas organizadas',
-        'descripcion': 'Excursiones a islas, recorridos culturales y tours guiados son percibidos como bien estructurados. Las actividades complementan la visita y enriquecen la experiencia global.',
-        'impacto': 'Medio',
-        'facilidad': 'Alta'
+# Comparación de bases de datos: viejas vs actualizadas
+st.subheader("Comparación de las bases de datos")
+col4, col5 = st.columns(2)
+
+with col4:
+    st.markdown("#### Base de Datos Actualizada")
+    buffer1 = io.StringIO()
+    df.iloc[:, :3].info(buf=buffer1)
+    st.text(buffer1.getvalue())
+
+with col5:
+    st.markdown("#### Base de Datos Original")
+    buffer2 = io.StringIO()
+    df_old.info(buf=buffer2)
+    st.text(buffer2.getvalue())
+
+# Limpieza y depuración de datos
+st.subheader("Procesamiento y depuración de los datos")
+st.markdown("""
+Dado que no todas las fuentes ofrecían de manera consistente la totalidad 
+de estas variables, se procedió a depurar el conjunto de datos conservando 
+únicamente las columnas más frecuentes y relevantes para el análisis
+            
+El proceso de limpieza incluyó:
+- Conversión de texto a minúsculas y eliminación de espacios innecesarios.
+- Eliminación de caracteres no válidos.
+- Estandarización de valores categóricos.
+- Eliminación de filas con valores nulos en las columnas principales
+- Eliminación de registros duplicados.
+
+> El nombre y el usuario son dos formas distintas de identificar la persona 
+que escribió el comentario registrado en la base de datos. Sin embargo, ninguno 
+de los dos está verdaderamente completo, por lo que se fusionaron los valores
+de las dos columnas, priorizando los valores de la columna usuario.
+            """)
+
+st.markdown("#### Vista previa de los primeros registros del DataFrame Viejo:")
+st.dataframe(df_old.head(10))
+
+st.markdown("#### Vista previa de los primeros registros del DataFrame Actualizado:")
+st.dataframe(df.iloc[:, :3].head(10))
+
+st.markdown("""
+**Código utilizado**    
+```
+    # Rellenar NAs en la columna usuario
+    df['usuario'] = df['usuario'].fillna(df['nombre'])
+            
+    df = df.drop('ciudad', axis=1)
+    df = df.drop('fecha', axis=1)
+    df = df.drop('plataforma', axis=1)
+    df = df.drop('nombre', axis=1)
+    
+    # Limpieza
+    columnas_texto = df.select_dtypes(include='object').columns
+    print(columnas_texto)
+
+    for col in columnas_texto:
+        df[col] = df[col].str.lower().str.strip()
+        df[col] = df[col].str.replace(r"[^a-z0-9áéíóúüñ ]", "", regex=True)
+    
+    # Corrección
+    df['pais'] = df['pais'].replace('estados unidos', "usa")
+    df['pais'] = df['pais'].replace('brazil', 'brasil')
+```
+* *Todos estos algoritmos fueron proporcionados en clase*
+---
+            """)
+
+# Clasificación de comentarios
+st.header("Expansión de la base de datos")
+col6, col7 = st.columns(2)
+
+with col6:
+    st.markdown("#### Clasificación de los comentarios por sentimiento")
+    st.markdown("""
+    Se utilizó un pipeline de la librería Transformers con el modelo BETO, 
+    especializado en análisis de sentimiento para texto en español. Este modelo 
+    permite clasificar los comentarios según su polaridad emocional: positivo, 
+    negativo o neutral.
+        """)
+
+with col7:
+    st.markdown("#### Clasificación de los comentarios por contenido")
+    st.markdown("""
+                Con el propósito de analizar las relaciones semánticas 
+                entre los comentarios y detectar posibles similitudes o 
+                diferencias en su contenido o tono, se utilizó un modelo 
+                de sentence embeddings.
+
+                Finalizando en la aplicación de un algoritmo de agrupamiento 
+                mediante DBSCAN, con el fin de identificar conjuntos de 
+                comentarios con alto grado de similitud en su contenido o tono 
+                emocional. Cada grupo resultante se asignó a una nueva 
+                columna denominada “cluster_dbscan”.
+                """)
+
+st.markdown("""
+**Código utilizado**            
+```
+    # Agregar columna de sentimiento con BETO
+    sentiment = pipeline("sentiment-analysis", model="finiteautomata/beto-sentiment-analysis") 
+    df["sentimiento"] = df["comentario"].apply(lambda x: sentiment(x)[0]["label"])
+            
+    # Agrupamiento de comentarios por contenido
+    dbscan = DBSCAN(eps=0.4, min_samples=2, metric="cosine")
+    df["cluster_dbscan"] = dbscan.fit_predict(X_emb)
+```
+""")
+
+st.markdown("#### Vista previa de los primeros registros del DataFrame con sentimientos:")
+st.dataframe(df.head(10))
+st.markdown("---")
+
+# Vista previa de sentimientos
+st.header("Análisis exploratorio de los datos globales")
+st.subheader("Análisis de Sentimientos")
+
+# Análisis de sentimientos global
+conteo = df["sentimiento"].value_counts()
+total = len(df)
+
+col1, col2, col3 = st.columns(3)
+col1.metric("🟢 Positivos", conteo.get("pos", 0), f"{conteo.get('pos', 0)/total*100:.1f}%")
+col2.metric("🔴 Negativos", conteo.get("neg", 0), f"{conteo.get('neg', 0)/total*100:.1f}%")
+col3.metric("⚪ Neutros", conteo.get("neu", 0), f"{conteo.get('neu', 0)/total*100:.1f}%")
+
+# Gráfico de torta de proporción de sentimientos
+st.markdown("#### Proporción de Comentarios por Sentimiento")
+fig2, ax2 = plt.subplots(figsize=(5,5))
+ax2.pie(conteo, labels=conteo.index, autopct='%1.1f%%', colors=["#A8E6CF", "#FF8B94", "#DCD6F7"], startangle=90)
+st.pyplot(fig2)
+
+
+st.subheader("Frecuencia de las palabras")
+
+# Generación de nubes de palabras por sentimiento
+def generar_wordcloud(sentimiento, color, sw):
+    # Seleccionar los comentarios según el sentimiento
+    texto = " ".join(df[df["sentimiento"] == sentimiento]["comentario"])
+    
+    # Solo generar si hay texto válido
+    if texto.strip():
+        wc = WordCloud(
+            width=1000,
+            height=600,
+            background_color="white",
+            colormap=color,
+            stopwords=sw,
+            collocations=False
+        ).generate(texto)
+
+        # Mostrar la nube directamente en Streamlit
+        st.subheader(f"Nube de Palabras - Comentarios {sentimiento.capitalize()}")
+        st.image(
+            wc.to_array(),
+            use_container_width=True
+        )
+
+for tipo, color in zip(["pos", "neg", "neu"], ["Greens", "Reds", "Blues"]):
+    generar_wordcloud(tipo, color, STOPWORDS)
+
+# Boxplot de longitud de comentarios
+st.subheader('Variación entre los comentarios')
+fig_len = px.box(df, x='sentimiento', y='longitud')
+st.plotly_chart(fig_len, use_container_width=True)
+
+# Embeddings y reducción dimensional para visualización
+st.subheader('Comparación entre los comentarios')
+modelo = SentenceTransformer('sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2')
+X_emb = modelo.encode(df["comentario"], convert_to_tensor=False)
+tsne = TSNE(n_components=2, random_state=42, perplexity=30, max_iter=1000)
+X_2D = tsne.fit_transform(X_emb)
+
+df_2D = pd.DataFrame(X_2D, columns=["x", "y"])
+df_2D["sentimiento"] = df["sentimiento"]
+df_2D["pais"] = df["pais"]
+df_2D["cluster_dbscan"] = df["cluster_dbscan"]
+
+# Gráfico interactivo de clusters
+fig = px.scatter(
+    df_2D,
+    x="x",
+    y="y",
+    color="cluster_dbscan",
+    hover_data=["sentimiento", "pais"],
+    title="Visualización 2D de comentarios (DBSCAN + SentenceTransformer)",
+    color_continuous_scale="Viridis"
+)
+
+fig.update_traces(marker=dict(size=6, opacity=0.7))
+
+# Nubes de palabras por cluster
+st.plotly_chart(fig, use_container_width=True)
+
+col8, col9 = st.columns(2)
+for c, cluster in enumerate(sorted(df["cluster_dbscan"].unique())):
+    textos = df.loc[df["cluster_dbscan"] == cluster, "comentario"]
+    texto = " ".join(textos)
+    wc = WordCloud(
+        width=1000,
+        height=600,
+        background_color="white",
+        colormap="viridis",
+        stopwords=STOPWORDS,
+        collocations=False
+    ).generate(texto)
+
+    if (c + 1) % 2 == 0:
+        with col9:
+            st.markdown(f"### Nube de Palabras - Cluster {cluster}")
+            st.image(wc.to_array(), use_container_width=True)
+    else:
+        with col8:
+            st.markdown(f"### Nube de Palabras - Cluster {cluster}")
+            st.image(wc.to_array(), use_container_width=True)
+
+# Análisis por países: nacional vs exterior
+st.header("Análisis exploratorio de los datos por países")
+df_extended = df
+df_extended["origen"] = df_extended["pais"].apply(
+    lambda x: "Nacional" if str(x).strip().lower() == "colombia" else "Exterior"
+)
+
+# Calcular distribución de sentimientos por origen ---
+conteo_sent = (
+    df_extended.groupby(["origen", "sentimiento"])
+    .size()
+    .reset_index(name="cuenta")
+)
+
+
+conteo_sent["sentimiento"] = conteo_sent["sentimiento"].str.upper().str.strip()
+
+col4, col5 = st.columns(2)
+with col4:
+    st.markdown("#### Sentimientos - Nacional")
+    nacional = conteo_sent[conteo_sent["origen"] == "Nacional"]
+    if not nacional.empty:
+        fig1, ax1 = plt.subplots(figsize=(5, 5))
+        ax1.pie(
+            nacional["cuenta"],
+            labels=nacional["sentimiento"],
+            autopct="%1.1f%%",
+            startangle=90,
+            colors=["#A8E6CF", "#FF8B94", "#DCD6F7"],  # POS, NEU, NEG
+        )
+        ax1.axis("equal")
+        st.pyplot(fig1, use_container_width=True)
+    else:
+        st.info("No hay datos de origen Nacional.")
+with col5:
+    st.markdown("#### Sentimientos - Exterior")
+    exterior = conteo_sent[conteo_sent["origen"] == "Exterior"]
+    if not exterior.empty:
+        fig2, ax2 = plt.subplots(figsize=(5, 5))
+        ax2.pie(
+            exterior["cuenta"],
+            labels=exterior["sentimiento"],
+            autopct="%1.1f%%",
+            startangle=90,
+            colors=["#A8E6CF", "#FF8B94", "#DCD6F7"],
+        )
+        ax2.axis("equal")
+        st.pyplot(fig2, use_container_width=True)
+    else:
+        st.info("No hay datos de origen Exterior.")
+
+pais_sentimiento = df.groupby(["pais", "sentimiento"]).size().reset_index(name="cantidad")
+fig = px.bar(
+    pais_sentimiento,
+    x="pais",
+    y="cantidad",
+    color="sentimiento",
+    barmode="group",
+    title="Distribución de sentimientos por país",
+    color_discrete_map={"POS": "green", "NEU": "gray", "NEG": "red"},
+    labels={
+        "pais": "País",
+        "cantidad": "Cantidad de comentarios",
+        "sentimiento": "Sentimiento"
     }
-]
+)
 
-for f in factores_pos:
-    st.markdown(
-        f"""
-        <div class="card">
-            <h4 style="color:#1b2b4a; margin-bottom:4px;">{f['titulo']}</h4>
-            <p style="color:#3f4b6b; font-size:15px;">{f['descripcion']}</p>
-            <p style="font-size:13px; color:#5c6b88;"><b>Impacto:</b> {f['impacto']} &nbsp; | &nbsp; <b>Facilidad:</b> {f['facilidad']}</p>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+fig.update_layout(
+    xaxis_tickangle=-45,
+    yaxis_title="Cantidad de comentarios",
+    xaxis_title="País"
+)
+
+st.plotly_chart(fig, use_container_width=True)  
+
+
+# Mapeo numérico de sentimientos y gráfico apilado por porcentaje
+sent_map = {"POS": 1, "NEU": 0, "NEG": -1}
+df["sentimiento"] = df["sentimiento"].str.upper().str.strip()
+df["sentimiento_valor"] = df["sentimiento"].map(sent_map)
+df_bar = (
+    df.groupby(["pais", "sentimiento"])
+      .size()
+      .reset_index(name="cuenta")
+)
+df_total = df_bar.groupby("pais")["cuenta"].transform("sum")
+df_bar["porcentaje"] = df_bar["cuenta"] / df_total * 100
+
+fig = px.bar(
+    df_bar,
+    x="pais",
+    y="porcentaje",
+    color="sentimiento",
+    color_discrete_map={"pos": "green", "neu": "gray", "neg": "red"},
+    title="Porcentaje de sentimientos por país",
+    text="porcentaje",
+    barmode="stack"
+)
+
+fig.update_traces(
+    texttemplate="%{text:.1f}%",
+    textposition="inside"
+)
+fig.update_layout(
+    xaxis_tickangle=-45,
+    yaxis_title="Porcentaje (%)",
+    xaxis_title="País",
+    legend_title="Sentimiento",
+    uniformtext_minsize=8,
+    uniformtext_mode="hide"
+)
+
+st.plotly_chart(fig, use_container_width=True)
+
+st.markdown('---')
 
 # ===== FACTORES NEGATIVOS =====
 st.header('Factores en comentarios negativos')
@@ -263,12 +490,7 @@ recs = [
 for titulo, desc in recs:
     st.markdown(f'''<div class="rec-card"><div class="rec-title-item">{titulo}</div><div class="rec-desc">{desc}</div></div>''', unsafe_allow_html=True)
 
-# ===== TABLA DETALLE =====
-st.header('Vista detallada de comentarios')
-st.dataframe(df[['comentario','sentimiento']].head(200))
-
 st.markdown('---')
-
 # ===== FESTIVAL DE PROYECTOS DE CIENCIA DE DATOS =====
 st.markdown('---')
 st.markdown("""
@@ -349,6 +571,5 @@ for c in criterios:
         </div>
     """, unsafe_allow_html=True)
 
-st.caption('📊 Festival de Proyectos de Ciencia de Datos — Evaluación y alineación de Cartagena360 con criterios académicos y éticos')
+st.caption('Festival de Proyectos de Ciencia de Datos — Evaluación y alineación de Cartagena360 con criterios académicos y éticos')
 st.caption('Dashboard Cartagena360💙')
-
